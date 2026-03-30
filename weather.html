@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>予報連動！車好きお天気ダッシュボード</title>
+    <style>
+        body { 
+            font-family: 'Helvetica Neue', Arial, sans-serif; 
+            margin: 0; padding: 20px; 
+            transition: background-image 1.0s ease-in-out; /* 切り替えをドラマチックに */
+            background-size: cover; background-position: center; background-attachment: fixed;
+            background-color: #1e272e;
+        }
+        .container { max-width: 900px; margin: auto; }
+        .overlay { 
+            background: rgba(0, 0, 0, 0.7); padding: 25px; border-radius: 20px; color: white; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5); margin-bottom: 20px; text-align: center;
+        }
+        .forecast-list { display: flex; overflow-x: auto; gap: 15px; padding-bottom: 15px; }
+        .day-item { 
+            background: rgba(255, 255, 255, 0.15); min-width: 120px; padding: 15px; 
+            border-radius: 15px; cursor: pointer; transition: 0.3s; text-align: center; color: white;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        .day-item:hover { background: rgba(255, 255, 255, 0.4); transform: scale(1.05); }
+        .day-item.active { background: #0be881; border: 2px solid white; }
+
+        #detailSection { display: none; background: rgba(0, 0, 0, 0.85); padding: 20px; border-radius: 20px; margin-top: 20px; color: white; }
+        .detail-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; }
+        .detail-item { background: rgba(255, 255, 255, 0.1); padding: 10px; border-radius: 10px; text-align: center; }
+        .temp-main { font-size: 4.5em; font-weight: bold; margin: 10px 0; color: #ffdd59; }
+        h1, h2, h3 { text-shadow: 2px 2px 4px rgba(0,0,0,0.5); }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="overlay">
+        <h1 id="cityName">🌍 読み込み中...</h1>
+        <div class="temp-main" id="currentTemp">--℃</div>
+        <div id="currentDesc" style="font-size: 1.5em; margin-bottom: 10px;">--</div>
+        <div id="carAnnounce" style="font-size: 1.1em; color: #0be881; font-weight: bold;">🚗 待機中...</div>
+    </div>
+
+    <h2 style="color: white;">📅 週間予報 (タップで背景と詳細が切り替わります)</h2>
+    <div class="forecast-list" id="forecastList"></div>
+
+    <div id="detailSection">
+        <h3 id="detailDate">--- の詳細</h3>
+        <div class="detail-grid" id="detailGrid"></div>
+    </div>
+</div>
+
+<script>
+    const API_KEY = 'b79417dcb675845a35444e7236b51ee0';
+    const CITY = 'Tokyo';
+    let allForecasts = [];
+
+    const images = {
+        ferrari: "https://images.unsplash.com/photo-1614200187524-dc4b892acf16?q=80&w=1600",
+        gtr: "https://images.unsplash.com/photo-1596708170284-81788c6f4414?q=80&w=1600",
+        prius: "https://images.unsplash.com/photo-1593976211158-b0a7a3a9df8d?q=80&w=1600"
+    };
+
+    // 🏎️ 天気の説明から車と背景を決定する「司令塔」関数
+    function updateCarBackground(description) {
+        let bgImage = "";
+        let carName = "";
+
+        if (description.includes("快晴") || description.includes("曇りがち")) {
+            bgImage = images.ferrari;
+            carName = "Ferrari 488 Spider 🏎️ (絶好のドライブ日和！)";
+        } 
+        else if (description.includes("厚い雲")) {
+            bgImage = images.gtr;
+            carName = "Nissan GT-R (R35) ⛰️ (重厚な走りを！)";
+        } 
+        else if (description.includes("雨")) {
+            bgImage = images.prius;
+            carName = "Toyota Prius ☔ (雨でも安心・低燃費！)";
+        } 
+        else {
+            bgImage = images.gtr;
+            carName = "Nissan GT-R (R35) ⛰️";
+        }
+
+        document.body.style.backgroundImage = `url('${bgImage}')`;
+        document.getElementById('carAnnounce').innerText = `NEXT MACHINE: ${carName}`;
+    }
+
+    async function init() {
+        try {
+            // 今の天気
+            const resNow = await fetch(`https://api.openweathermap.org/data/2.5/weather?q=${CITY}&appid=${API_KEY}&units=metric&lang=ja`);
+            const now = await resNow.json();
+            
+            // 初回の背景セット
+            updateCarBackground(now.weather[0].description);
+            document.getElementById('cityName').innerText = `🌍 ${now.name} の天気`;
+            document.getElementById('currentTemp').innerText = `${Math.round(now.main.temp)}℃`;
+            document.getElementById('currentDesc').innerText = now.weather[0].description;
+
+            // 予報データ取得
+            const resFore = await fetch(`https://api.openweathermap.org/data/2.5/forecast?q=${CITY}&appid=${API_KEY}&units=metric&lang=ja`);
+            const dataFore = await resFore.json();
+            allForecasts = dataFore.list;
+
+            renderWeekly(allForecasts);
+        } catch (e) { console.error(e); }
+    }
+
+    function renderWeekly(list) {
+        const listDiv = document.getElementById('forecastList');
+        // お昼12時のデータを抽出
+        const daily = list.filter(item => item.dt_txt.includes("12:00:00"));
+
+        daily.forEach(item => {
+            const dateObj = new Date(item.dt * 1000);
+            const dateStr = dateObj.toLocaleDateString('ja-JP', { weekday: 'short', day: 'numeric' });
+            const desc = item.weather[0].description;
+            
+            const div = document.createElement('div');
+            div.className = 'day-item';
+            div.innerHTML = `<div>${dateStr}</div><strong>${Math.round(item.main.temp)}℃</strong><br><small>${desc}</small>`;
+            
+            // 💡 ここが魔法！クリック時に詳細表示＋背景更新を行う
+            div.onclick = () => {
+                showDetail(dateObj.toLocaleDateString('ja-JP'));
+                updateCarBackground(desc); // 予報の天気に合わせて背景チェンジ！
+            };
+            listDiv.appendChild(div);
+        });
+    }
+
+    function showDetail(targetDate) {
+        document.getElementById('detailSection').style.display = 'block';
+        document.getElementById('detailDate').innerText = `${targetDate} の詳細予報`;
+        const grid = document.getElementById('detailGrid');
+        grid.innerHTML = '';
+        const filtered = allForecasts.filter(item => new Date(item.dt * 1000).toLocaleDateString('ja-JP') === targetDate);
+        filtered.forEach(item => {
+            const time = new Date(item.dt * 1000).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+            grid.innerHTML += `<div class="detail-item"><div>${time}</div><div style="font-size: 1.2em; color: #ffdd59;">${Math.round(item.main.temp)}℃</div><div>${item.weather[0].description}</div></div>`;
+        });
+        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    }
+
+    init();
+</script>
+
+</body>
+</html>
